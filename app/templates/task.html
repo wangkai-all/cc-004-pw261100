@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>任务 #{{ t.id }} - 经营报表下载工具</title>
+<style>
+  body{font-family:system-ui,sans-serif;margin:0;background:#f3f4f6;color:#111827}
+  main{max-width:900px;margin:24px auto;padding:0 16px}
+  .card{background:#fff;border-radius:10px;padding:16px 20px;margin-bottom:18px;box-shadow:0 1px 4px #0001}
+  h1{font-size:18px} h2{font-size:15px;margin:0 0 12px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{padding:7px 10px;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:top}
+  th{background:#f9fafb;color:#6b7280;width:120px;white-space:nowrap}
+  .lv-warning{color:#b45309}.lv-error{color:#b91c1c}
+  a{color:#2563eb;text-decoration:none}
+  code{background:#f3f4f6;padding:1px 5px;border-radius:4px}
+</style>
+</head>
+<body>
+<main>
+  <p><a href="/">← 返回任务列表</a></p>
+  <div class="card">
+    <h1>任务 #{{ t.id }}：{{ t.store_name }}（{{ t.store_id }}） {{ t.date_from }} ~ {{ t.date_to }}</h1>
+    <table>
+      <tr><th>状态</th><td>{{ t.status_zh }}（{{ t.status }}）</td></tr>
+      <tr><th>当前/失败步骤</th><td>{{ t.step_zh }}</td></tr>
+      <tr><th>失败原因</th><td>{{ t.error or '-' }}</td></tr>
+      <tr><th>站点导出ID</th><td>{{ t.export_id or '-' }}</td></tr>
+      <tr><th>文件</th><td>{% if t.file_path %}<code>{{ t.file_path }}</code>{% else %}-{% endif %}</td></tr>
+      <tr><th>SHA256</th><td>{{ t.file_sha256 or '-' }}</td></tr>
+      <tr><th>尝试次数</th><td>{{ t.attempts }}</td></tr>
+      <tr><th>创建时间</th><td>{{ t.created_at }}</td></tr>
+      <tr><th>更新时间</th><td>{{ t.updated_at }}</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <h2>处理记录（含历次失败原因）</h2>
+    <table>
+      <thead><tr><th style="width:170px">时间</th><th style="width:90px">级别</th><th style="width:110px">步骤</th><th>内容</th></tr></thead>
+      <tbody>
+      {% for e in events %}
+        <tr>
+          <td>{{ e.ts }}</td>
+          <td class="lv-{{ e.level }}">{{ e.level }}</td>
+          <td>{{ e.step or '-' }}</td>
+          <td>{{ e.message }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</main>
+</body>
+</html>

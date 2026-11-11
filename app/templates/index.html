@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>经营报表下载工具</title>
+<style>
+  *{box-sizing:border-box}
+  body{font-family:system-ui,sans-serif;margin:0;background:#f3f4f6;color:#111827}
+  header{background:#1f2937;color:#fff;padding:12px 24px;display:flex;align-items:center;gap:16px}
+  header h1{font-size:18px;margin:0}
+  header .sp{flex:1}
+  header a{color:#93c5fd;font-size:13px}
+  main{max-width:1180px;margin:20px auto;padding:0 16px}
+  .card{background:#fff;border-radius:10px;padding:16px 20px;margin-bottom:18px;box-shadow:0 1px 4px #0001}
+  .card h2{font-size:15px;margin:0 0 12px}
+  .row{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  button{padding:7px 16px;border:0;border-radius:6px;cursor:pointer;font-size:14px}
+  .btn-primary{background:#2563eb;color:#fff}
+  .btn-warn{background:#d97706;color:#fff}
+  .btn-gray{background:#e5e7eb;color:#374151}
+  .badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600}
+  .b-done{background:#d1fae5;color:#047857}
+  .b-failed{background:#fee2e2;color:#b91c1c}
+  .b-waiting{background:#fef3c7;color:#92400e}
+  .b-downloading,.b-verifying{background:#dbeafe;color:#1d4ed8}
+  .b-pending{background:#f3f4f6;color:#6b7280}
+  .b-run{background:#d1fae5;color:#047857}
+  .b-pause{background:#fef3c7;color:#92400e}
+  .b-idle{background:#f3f4f6;color:#6b7280}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{padding:8px 10px;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:top}
+  th{background:#f9fafb;color:#6b7280;font-weight:600;white-space:nowrap}
+  .err{color:#b91c1c;font-size:12px;max-width:260px}
+  .muted{color:#9ca3af;font-size:12px}
+  .warn{background:#fef3c7;color:#92400e;padding:8px 12px;border-radius:6px;font-size:13px;margin-bottom:12px}
+  .error-box{background:#fee2e2;color:#b91c1c;padding:8px 12px;border-radius:6px;font-size:13px;margin-bottom:12px}
+  label{font-size:14px}
+  input[type=date]{padding:6px;border:1px solid #d1d5db;border-radius:6px}
+  .stores{display:flex;gap:12px;flex-wrap:wrap}
+  .stores label{background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:6px 10px}
+  a{color:#2563eb;text-decoration:none}
+  form.inline{display:inline}
+</style>
+</head>
+<body>
+<header>
+  <h1>经营报表下载工具</h1>
+  <span class="muted" id="worker-state" style="color:#9ca3af">worker 状态加载中…</span>
+  <span class="sp"></span>
+  <a href="{{ report_url }}" target="_blank">报表站点 ↗</a>
+</header>
+<main>
+  {% if warn %}<div class="warn">{{ warn }}</div>{% endif %}
+  {% if error %}<div class="error-box">{{ error }}</div>{% endif %}
+
+  <div class="card">
+    <h2>控制</h2>
+    <div class="row">
+      <form class="inline" method="post" action="/control/start"><button class="btn-primary">开始 / 继续</button></form>
+      <form class="inline" method="post" action="/control/pause"><button class="btn-warn">暂停</button></form>
+      <form class="inline" method="post" action="/control/retry_failed"><button class="btn-gray">重试全部失败任务</button></form>
+      <span class="muted">暂停后再继续，会接着处理未完成的任务，不会重复创建仍在排队的导出。</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>创建下载批次</h2>
+    <form method="post" action="/batch">
+      <div class="row" style="margin-bottom:12px">
+        <label>开始日期 <input type="date" name="date_from" value="{{ default_from }}" required></label>
+        <label>结束日期 <input type="date" name="date_to" value="{{ default_to }}" required></label>
+      </div>
+      <div class="stores" style="margin-bottom:12px">
+        {% for s in stores %}
+        <label><input type="checkbox" name="stores" value="{{ s.id }}" checked> {{ s.name }} ({{ s.id }})</label>
+        {% endfor %}
+      </div>
+      <button class="btn-primary" type="submit">创建下载任务</button>
+      <span class="muted">重复创建同一批时，已核验过的文件会直接复用；文件损坏或内容不符的会自动重新下载。</span>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>任务列表 <span class="muted" id="task-count"></span></h2>
+    <table>
+      <thead><tr>
+        <th>ID</th><th>门店</th><th>日期范围</th><th>状态</th><th>失败步骤</th>
+        <th>失败原因</th><th>导出ID</th><th>文件</th><th>尝试</th><th>更新时间</th><th></th>
+      </tr></thead>
+      <tbody id="tasks"><tr><td colspan="11" class="muted">加载中…</td></tr></tbody>
+    </table>
+  </div>
+</main>
+<script>
+const esc = s => (s ?? '').toString().replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+async function refresh() {
+  try {
+    const r = await fetch('/api/status');
+    const data = await r.json();
+    const w = data.worker;
+    const wmode = w.paused ? '<span class="badge b-pause">已暂停</span>'
+                : w.mode === 'running' ? '<span class="badge b-run">运行中</span>'
+                : '<span class="badge b-idle">空闲</span>';
+    document.getElementById('worker-state').innerHTML =
+      'worker：' + wmode + ' ' + esc(w.message || '') +
+      (w.current_task ? '（任务 #' + w.current_task + '）' : '');
+    const tb = document.getElementById('tasks');
+    document.getElementById('task-count').textContent = '共 ' + data.tasks.length + ' 个任务';
+    if (!data.tasks.length) {
+      tb.innerHTML = '<tr><td colspan="11" class="muted">暂无任务，请先创建批次</td></tr>';
+      return;
+    }
+    tb.innerHTML = data.tasks.map(t => {
+      const file = t.file_path ? esc(t.file_path.split('/').pop()) : '<span class="muted">-</span>';
+      const err = t.error ? '<div class="err">' + esc(t.error) + '</div>' : '<span class="muted">-</span>';
+      const step = t.status === 'failed' ? esc(t.step_zh) : esc(t.step_zh);
+      return '<tr>'
+        + '<td>#' + t.id + '</td>'
+        + '<td>' + esc(t.store_name) + '<br><span class="muted">' + esc(t.store_id) + '</span></td>'
+        + '<td>' + esc(t.date_from) + ' ~<br>' + esc(t.date_to) + '</td>'
+        + '<td><span class="badge b-' + t.status + '">' + esc(t.status_zh) + '</span></td>'
+        + '<td>' + step + '</td>'
+        + '<td>' + err + '</td>'
+        + '<td>' + esc(t.export_id || '-') + '</td>'
+        + '<td>' + file + '</td>'
+        + '<td>' + t.attempts + '</td>'
+        + '<td class="muted">' + esc(t.updated_at) + '</td>'
+        + '<td><a href="/task/' + t.id + '">详情</a></td>'
+        + '</tr>';
+    }).join('');
+  } catch (e) { /* 下次再试 */ }
+}
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>

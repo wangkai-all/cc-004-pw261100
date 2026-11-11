@@ -7,3 +7,7 @@ node_modules/
 __pycache__/
 .claude/
 .cc-workbench/
+data/
+downloads/
+.syslibs/
+.ms-playwright/
